@@ -35,7 +35,6 @@ Image::Image() : w(100), h(100), channels(3) {
 
 Image::Image(const char *filename) {
     if (read(filename)) {
-        // std::cout<<"Read "<<filename<<" Width: "<<w<<" Height: "<<h<<" Channels: "<<channels<<std::endl;
         size = w * h * channels;
     } else {
         std::cout << "Failed to read " << filename << std::endl;
@@ -48,12 +47,6 @@ Image::Image(int w, int h, int channels) : w(w), h(h), channels(channels) {
 }
 
 Image::Image(const Image &img) : w(img.w), h(img.h), channels(img.channels), data(img.data) { size = w * h * channels; }
-
-// uint8_t &Image::operator()(int x, int y, int c) { return data[(x + y * w) * channels + c]; }
-// const uint8_t &Image::operator()(int x, int y, int c) const { return data[(x + y * w) * channels + c]; }
-
-// uint8_t *Image::pixel(int x, int y) { return &(*this)(x, y, 0); }
-// const uint8_t *Image::pixel(int x, int y) const { return &(*this)(x, y, 0); }
 
 bool Image::read(const char *filename) {
     uint8_t *temp = stbi_load(filename, &w, &h, &channels, 0);
@@ -285,7 +278,6 @@ void Image::subdivideValues(int sx, int sy, int sw, int sh, std::map<std::pair<i
 
     if (image_map.count(std::make_pair(sw, sh)) == 0) {
         image_map[std::make_pair(sw, sh)] = resizeFastNew(sw, sh);
-        // std::cout<<sw<<" "<<sh<<" : "<<image_map.count(std::make_pair(sw, sh))<<" "<<image_map.size()<<"\n";
     }
 }
 
