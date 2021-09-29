@@ -1,6 +1,8 @@
+#include <condition_variable>
 #include <filesystem>
 #include <format>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -95,6 +97,52 @@ RgbColor parseColor(const std::string &str) {
     return RgbColor{byte(r), byte(g), byte(b)};
 }
 
+class ProgressBar {
+  public:
+    explicit ProgressBar(int total, int size) : mTotal(total), mSize(size) {}
+
+    void UpdateProgress(std::ostream &os, int progress) {
+        if (progress <= mProgress) {
+            return;
+        }
+
+        if (mProgress == 0) {
+            WriteProgressBar(os);
+        }
+
+        while (mPrinted * mTotal < progress * mSize) {
+            os << '*';
+            ++mPrinted;
+        }
+
+        mProgress = progress;
+        if (mProgress >= mTotal) {
+            os << " Done\n";
+        }
+    }
+
+  private:
+    void WriteProgressBar(std::ostream &os) const {
+        constexpr int tickCount = 4;
+        int tick = mSize;
+        os << '|';
+        for (int i = 1; i < mSize - 1; ++i) {
+            if (i * tickCount >= tick) {
+                os << '|';
+                tick += mSize;
+            } else {
+                os << '-';
+            }
+        }
+        os << "| 100%\n";
+    }
+
+    int mProgress = 0;
+    int mPrinted = 0;
+    int mTotal;
+    int mSize;
+};
+
 void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::Ptr checker) {
     auto animPat = options["anim"].as<std::string>();
     auto inputPat = options["input"].as<std::string>();
@@ -139,6 +187,11 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
 
     std::cout << "Generating frame tasks...\n";
     int taskCount = 0;
+
+    std::atomic_int tasksDone = 0;
+    std::condition_variable cv;
+    std::mutex cvMutex;
+
     std::optional<int> outRes;
     if (options.count("out-resolution")) {
         outRes = options["out-resolution"].as<int>();
@@ -150,8 +203,8 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
         if (inPath == lastPath || !fs::exists(inPath)) {
             break;
         }
-        auto tree = getFrameTree();
-        pool.submit([=] {
+        pool.submit([inPath = std::move(inPath), outPath = std::move(outPath), tree = getFrameTree(), outRes, &cv,
+                     &cvMutex, &tasksDone] {
             if (outPath.has_parent_path()) {
                 fs::create_directories(outPath.parent_path());
             }
@@ -168,11 +221,27 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
                 frame = frame.resizeFastNew(w, h);
             }
             frame.save(outPath.string().c_str());
+
+            {
+                std::unique_lock lock(cvMutex);
+                ++tasksDone;
+            }
+            cv.notify_one();
         });
         ++taskCount;
     }
 
     std::cout << "Processing " << taskCount << " frames...\n";
+
+    ProgressBar pb(taskCount, 80);
+    while (tasksDone < taskCount) {
+        pb.UpdateProgress(std::cout, tasksDone);
+        {
+            std::unique_lock lock(cvMutex);
+            cv.wait(lock);
+        }
+    }
+    pb.UpdateProgress(std::cout, tasksDone);
 
     pool.wait_for_tasks();
 }
