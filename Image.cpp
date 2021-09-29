@@ -17,7 +17,7 @@ template <class T> T scale(T &val, double s) {
 
 template <class T> T scale(T &val, uint8_t s) {
     T old = val;
-    val = old * s / 255;
+    val = old * s >> 8;
     return old;
 }
 
@@ -28,6 +28,16 @@ template <class T> T bound(double x) {
         return std::numeric_limits<T>::max();
     return static_cast<T>(std::round(x));
 }
+
+void blend(byte *dst, const byte *src, byte srcAlpha) {
+    unsigned int alpha = srcAlpha + 1;
+    unsigned int invAlpha = 256 - srcAlpha;
+    dst[0] = static_cast<byte>((alpha * src[0] + invAlpha * dst[0]) >> 8);
+    dst[1] = static_cast<byte>((alpha * src[1] + invAlpha * dst[1]) >> 8);
+    dst[2] = static_cast<byte>((alpha * src[2] + invAlpha * dst[2]) >> 8);
+}
+
+byte fixedMult(byte a, byte b) { return (a * b) / 255; }
 } // namespace
 
 Image::Image() : mWidth(100), mHeight(100), mChannels(3), mData(mWidth * mHeight * mChannels) {}
@@ -130,25 +140,21 @@ Image &Image::overlay(const Image &source, int x, int y) {
             if (sx + x >= mWidth)
                 break;
 
-            const uint8_t *srcPixel = source.pixel(sx, sy);
-            uint8_t *dstPixel = pixel(sx + x, sy + y);
-            float srcAlpha = source.mChannels < 4 ? 1 : srcPixel[3] / 255.f;
-            float dstAlpha = mChannels < 4 ? 1 : dstPixel[3] / 255.f;
+            const byte *srcPixel = source.pixel(sx, sy);
+            byte *dstPixel = pixel(sx + x, sy + y);
+            byte srcAlpha = source.mChannels < 4 ? 255 : srcPixel[3];
+            byte dstAlpha = mChannels < 4 ? 255 : dstPixel[3];
 
-            if (srcAlpha > .99 && dstAlpha > .99) {
+            if (srcAlpha == 255) {
                 std::copy_n(srcPixel, mChannels, dstPixel);
             } else {
-                float outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha);
-                if (outAlpha < .01) {
+                byte outAlpha = srcAlpha + fixedMult(dstAlpha, 255 - srcAlpha);
+                if (outAlpha < 1) {
                     std::fill_n(dstPixel, mChannels, uint8_t(0));
                 } else {
-                    for (int channel = 0; channel < mChannels; channel++) {
-                        dstPixel[channel] = bound<uint8_t>((srcPixel[channel] / 255.f * srcAlpha +
-                                                            dstPixel[channel] / 255.f * dstAlpha * (1 - srcAlpha)) /
-                                                           outAlpha * 255.f);
-                    }
+                    blend(dstPixel, srcPixel, srcAlpha);
                     if (mChannels > 3)
-                        dstPixel[3] = bound<uint8_t>(outAlpha * 255.f);
+                        dstPixel[3] = outAlpha;
                 }
             }
         }
