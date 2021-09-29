@@ -160,7 +160,7 @@ class SubdivisionColor : public SubdivisionChecker {
 
         auto sqr = [](auto x) { return x * x; };
 
-        auto thresh2 = sqr(mParams.similarityThreshold);
+        auto thresh2 = 3 * sqr(mParams.similarityThreshold);
 
         for (int y = r.y; y < r.h + r.y; y++) {
             for (int x = r.x; x < r.w + r.x; x++) {
