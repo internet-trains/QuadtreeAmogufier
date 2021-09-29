@@ -55,8 +55,8 @@ void createVideoFramesBW(int start, int end, int repeatFrames) {
     int height;
     std::string first_name("in/img_" + std::to_string(start) + ".png");
     Image first_frame(first_name.c_str());
-    width = first_frame.w;
-    height = first_frame.h;
+    width = first_frame.width();
+    height = first_frame.height();
 
     for (int i = 0; i < 6; i++) {
         std::string amogus_name("res/" + std::to_string(i) + ".png");
@@ -81,8 +81,7 @@ void workBW(int i, int index, std::vector<std::map<std::pair<int, int>, Image>> 
     Image frame(frame_name.c_str());
     Image frame_done = frame.quadifyFrameBW(preloadedResized.at(index));
     std::string save_loc("out/img_" + std::to_string(i) + ".png");
-    frame_done.write(save_loc.c_str());
-    std::cout << i << "\n";
+    frame_done.save(save_loc.c_str());
 }
 
 void createVideoFramesCol(int start, int end, int repeatFrames) {
@@ -92,8 +91,8 @@ void createVideoFramesCol(int start, int end, int repeatFrames) {
     int height;
     std::string first_name("in/img_" + std::to_string(start) + ".png");
     Image first_frame(first_name.c_str());
-    width = first_frame.w;
-    height = first_frame.h;
+    width = first_frame.width();
+    height = first_frame.height();
 
     for (int i = 0; i < 6; i++) {
         std::string amogus_name("res/" + std::to_string(i) + ".png");
@@ -117,6 +116,5 @@ void workCol(int i, int index, std::vector<std::map<std::pair<int, int>, Image>>
     Image frame(frame_name.c_str());
     Image frame_done = frame.quadifyFrameRGB(preloadedResized.at(index));
     std::string save_loc("out/img_" + std::to_string(i) + ".png");
-    frame_done.write(save_loc.c_str());
-    std::cout << i << "\n";
+    frame_done.save(save_loc.c_str());
 }

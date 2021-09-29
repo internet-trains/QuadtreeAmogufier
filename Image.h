@@ -1,35 +1,34 @@
 #ifndef IMAGE_H
 #define IMAGE_H
-#endif
 
-#include <stdint.h>
-#include <iostream>
-#include <cstring>
-#include <string>
-#include <math.h>
-#include <vector>
+#include <cmath>
+#include <cstdint>
 #include <map>
+#include <vector>
 
 struct Image {
-    std::vector<uint8_t> data;
-    size_t size = 0;
-    int w;
-    int h;
-    int channels;
+  private:
+    int mWidth;
+    int mHeight;
+    int mChannels;
+    std::vector<uint8_t> mData;
 
+  public:
     Image();
     Image(const char* filename);
     Image(int w, int h, int channels);
-    Image(const Image& img);
+
+    int width() const { return mWidth; }
+    int height() const { return mHeight; }
+    int channels() const { return mChannels; }
 
     uint8_t &operator()(int x, int y, int c) { return pixel(x, y)[c]; }
     const uint8_t &operator()(int x, int y, int c) const { return pixel(x, y)[c]; }
 
-    uint8_t *pixel(int x, int y) { return data.data() + (x + y * w) * channels; }
-    const uint8_t *pixel(int x, int y) const { return data.data() + (x + y * w) * channels; }
+    uint8_t *pixel(int x, int y) { return mData.data() + (x + y * mWidth) * mChannels; }
+    const uint8_t *pixel(int x, int y) const { return mData.data() + (x + y * mWidth) * mChannels; }
 
-    bool read(const char* filename);
-    bool write(const char* filename) const;
+    bool save(const char *filename) const;
 
     Image &rescaleLuminance(float lo, float hi);
     Image &rescaleLuminance(float hi) { return rescaleLuminance(0, hi); }
@@ -56,3 +55,5 @@ struct Image {
     std::map<std::pair<int, int>, Image> preloadResized(int sw, int sh) const;
     void subdivideValues(int sx, int sy, int sw, int sh, std::map<std::pair<int, int>, Image> &image_map) const;
 };
+
+#endif

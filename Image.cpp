@@ -6,6 +6,8 @@
 #include "lib/stb_image.h"
 #include "lib/stb_image_write.h"
 
+#include <iostream>
+
 namespace {
 template <class T> T scale(T &val, double s) {
     T old = val;
@@ -28,51 +30,34 @@ template <class T> T bound(double x) {
 }
 } // namespace
 
-Image::Image() : w(100), h(100), channels(3) {
-    size = w * h * channels;
-    data = std::vector<uint8_t>(size);
-}
+Image::Image() : mWidth(100), mHeight(100), mChannels(3), mData(mWidth * mHeight * mChannels) {}
 
 Image::Image(const char *filename) {
-    if (read(filename)) {
-        size = w * h * channels;
-    } else {
-        std::cout << "Failed to read " << filename << std::endl;
-    }
-}
-
-Image::Image(int w, int h, int channels) : w(w), h(h), channels(channels) {
-    size = w * h * channels;
-    data = std::vector<uint8_t>(size);
-}
-
-Image::Image(const Image &img) : w(img.w), h(img.h), channels(img.channels), data(img.data) { size = w * h * channels; }
-
-bool Image::read(const char *filename) {
-    uint8_t *temp = stbi_load(filename, &w, &h, &channels, 0);
-    size = w * h * channels;
-    data.insert(data.end(), &temp[0], &temp[size]);
+    uint8_t *temp = stbi_load(filename, &mWidth, &mHeight, &mChannels, 0);
+    mData.insert(mData.end(), &temp[0], &temp[mWidth * mHeight * mChannels]);
     stbi_image_free(temp);
-    return true;
 }
 
-bool Image::write(const char *filename) const {
+Image::Image(int mWidth, int mHeight, int mChannels)
+    : mWidth(mWidth), mHeight(mHeight), mChannels(mChannels), mData(mWidth * mHeight * mChannels) {}
+
+bool Image::save(const char *filename) const {
     int success;
-    success = stbi_write_png(filename, w, h, channels, data.data(), w * channels);
+    success = stbi_write_png(filename, mWidth, mHeight, mChannels, mData.data(), mWidth * mChannels);
     return success != 0;
 }
 
 Image &Image::rescaleLuminance(float lo, float hi) {
     float min = std::numeric_limits<float>::max();
     float max = std::numeric_limits<float>::min();
-    if (channels < 3) {
+    if (mChannels < 3) {
         return *this;
     }
 
     auto getLuminance = [&](uint8_t *p) { return (p[0] * 0.2126f + p[1] * 0.7152f + p[2] * 0.0722f) / 255.f; };
 
-    for (int y = 0; y < h; ++y) {
-        for (int x = 0; x < w; ++x) {
+    for (int y = 0; y < mHeight; ++y) {
+        for (int x = 0; x < mWidth; ++x) {
             float lum = getLuminance(pixel(x, y));
             min = std::min(lum, min);
             max = std::max(lum, max);
@@ -81,8 +66,8 @@ Image &Image::rescaleLuminance(float lo, float hi) {
 
     if (max - min > 0.01f) {
         float ratio = (hi - lo) / (max - min);
-        for (int y = 0; y < h; ++y) {
-            for (int x = 0; x < w; ++x) {
+        for (int y = 0; y < mHeight; ++y) {
+            for (int x = 0; x < mWidth; ++x) {
                 float l = getLuminance(pixel(x, y));
                 float s = (l - min) * ratio;
                 if (l < 0.01f) {
@@ -106,21 +91,21 @@ Image &Image::rescaleLuminance(float lo, float hi) {
 }
 
 Image &Image::colorMask(float r, float g, float b) {
-    assert(channels == 3);
-    for (int i = 0; i < data.size(); i += channels) {
-        scale(data[i], r);
-        scale(data[i + 1], g);
-        scale(data[i + 2], b);
+    assert(mChannels == 3);
+    for (int i = 0; i < mData.size(); i += mChannels) {
+        scale(mData[i], r);
+        scale(mData[i + 1], g);
+        scale(mData[i + 2], b);
     }
     return *this;
 }
 
 Image &Image::colorMask(uint8_t r, uint8_t g, uint8_t b) {
-    assert(channels == 3);
-    for (int i = 0; i < data.size(); i += channels) {
-        scale(data[i], r);
-        scale(data[i + 1], g);
-        scale(data[i + 2], b);
+    assert(mChannels == 3);
+    for (int i = 0; i < mData.size(); i += mChannels) {
+        scale(mData[i], r);
+        scale(mData[i + 1], g);
+        scale(mData[i + 2], b);
     }
     return *this;
 }
@@ -139,31 +124,31 @@ Image Image::colorMaskNew(uint8_t r, uint8_t g, uint8_t b) const {
 
 Image &Image::overlay(const Image &source, int x, int y) {
 
-    for (int sy = std::max(0, -y); sy < source.h; sy++) {
-        if (sy + y >= h)
+    for (int sy = std::max(0, -y); sy < source.mHeight; sy++) {
+        if (sy + y >= mHeight)
             break;
-        for (int sx = std::max(0, -x); sx < source.w; sx++) {
-            if (sx + x >= w)
+        for (int sx = std::max(0, -x); sx < source.mWidth; sx++) {
+            if (sx + x >= mWidth)
                 break;
 
             const uint8_t *srcPixel = source.pixel(sx, sy);
             uint8_t *dstPixel = pixel(sx + x, sy + y);
-            float srcAlpha = source.channels < 4 ? 1 : srcPixel[3] / 255.f;
-            float dstAlpha = channels < 4 ? 1 : dstPixel[3] / 255.f;
+            float srcAlpha = source.mChannels < 4 ? 1 : srcPixel[3] / 255.f;
+            float dstAlpha = mChannels < 4 ? 1 : dstPixel[3] / 255.f;
 
             if (srcAlpha > .99 && dstAlpha > .99) {
-                std::copy_n(srcPixel, channels, dstPixel);
+                std::copy_n(srcPixel, mChannels, dstPixel);
             } else {
                 float outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha);
                 if (outAlpha < .01) {
-                    std::fill_n(dstPixel, channels, uint8_t(0));
+                    std::fill_n(dstPixel, mChannels, uint8_t(0));
                 } else {
-                    for (int channel = 0; channel < channels; channel++) {
+                    for (int channel = 0; channel < mChannels; channel++) {
                         dstPixel[channel] = bound<uint8_t>((srcPixel[channel] / 255.f * srcAlpha +
                                                             dstPixel[channel] / 255.f * dstAlpha * (1 - srcAlpha)) /
                                                            outAlpha * 255.f);
                     }
-                    if (channels > 3)
+                    if (mChannels > 3)
                         dstPixel[3] = bound<uint8_t>(outAlpha * 255.f);
                 }
             }
@@ -174,14 +159,14 @@ Image &Image::overlay(const Image &source, int x, int y) {
 }
 
 Image Image::resizeFastNew(int rw, int rh) const {
-    Image resizedImage(rw, rh, channels);
-    double x_ratio = w / (double)rw;
-    double y_ratio = h / (double)rh;
+    Image resizedImage(rw, rh, mChannels);
+    double x_ratio = mWidth / (double)rw;
+    double y_ratio = mHeight / (double)rh;
     for (int y = 0; y < rh; y++) {
         for (int x = 0; x < rw; x++) {
             int rx = static_cast<int>(x * x_ratio);
             int ry = static_cast<int>(y * y_ratio);
-            std::copy_n(pixel(rx, ry), channels, resizedImage.pixel(x, y));
+            std::copy_n(pixel(rx, ry), mChannels, resizedImage.pixel(x, y));
         }
     }
     return resizedImage;
@@ -189,15 +174,15 @@ Image Image::resizeFastNew(int rw, int rh) const {
 
 Image Image::cropNew(int cx, int cy, int cw, int ch) const {
 
-    Image croppedImage(cw, ch, channels);
+    Image croppedImage(cw, ch, mChannels);
 
     for (int y = 0; y < ch; y++) {
-        if (y + cy >= h)
+        if (y + cy >= mHeight)
             break;
         for (int x = 0; x < cw; x++) {
-            if (x + cx >= w)
+            if (x + cx >= mWidth)
                 break;
-            std::copy_n(pixel(x + cx, y + cy), channels, croppedImage.pixel(x, y));
+            std::copy_n(pixel(x + cx, y + cy), mChannels, croppedImage.pixel(x, y));
         }
     }
 
@@ -205,9 +190,9 @@ Image Image::cropNew(int cx, int cy, int cw, int ch) const {
 }
 
 Image Image::quadifyFrameBW(std::map<std::pair<int, int>, Image> &resizedAmogi) const {
-    Image frame(w, h, 3);
+    Image frame(mWidth, mHeight, 3);
 
-    subdivideBW(0, 0, w, h, frame, resizedAmogi);
+    subdivideBW(0, 0, mWidth, mHeight, frame, resizedAmogi);
 
     return frame;
 }
@@ -253,9 +238,9 @@ std::tuple<bool, uint8_t> Image::subdivideCheckBW(int sx, int sy, int sw, int sh
 }
 
 Image Image::quadifyFrameRGB(std::map<std::pair<int, int>, Image> &resizedAmogi) const {
-    Image frameRGB(w, h, 3);
+    Image frameRGB(mWidth, mHeight, 3);
 
-    subdivideRGB(0, 0, w, h, frameRGB, resizedAmogi);
+    subdivideRGB(0, 0, mWidth, mHeight, frameRGB, resizedAmogi);
 
     return frameRGB;
 }
