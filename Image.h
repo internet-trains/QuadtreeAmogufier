@@ -31,6 +31,10 @@ struct Image {
     bool read(const char* filename);
     bool write(const char* filename) const;
 
+    Image &rescaleLuminance(float lo, float hi);
+    Image &rescaleLuminance(float hi) { return rescaleLuminance(0, hi); }
+    Image &rescaleLuminance() { return rescaleLuminance(0, 1); }
+
     Image& colorMask(float r, float g, float b);
     Image &colorMask(uint8_t r, uint8_t g, uint8_t b);
     Image colorMaskNew(float r, float g, float b) const;

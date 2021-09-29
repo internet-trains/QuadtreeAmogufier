@@ -62,6 +62,7 @@ void createVideoFramesBW(int start, int end, int repeatFrames) {
         std::string amogus_name("res/" + std::to_string(i) + ".png");
         Image amogus(amogus_name.c_str());
 
+        amogus.rescaleLuminance();
         preloadedResized.push_back(amogus.preloadResized(width, height));
     }
 

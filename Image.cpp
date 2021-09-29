@@ -7,13 +7,13 @@
 #include "lib/stb_image_write.h"
 
 namespace {
-template <class T> T rescale(T &val, double s) {
+template <class T> T scale(T &val, double s) {
     T old = val;
     val = static_cast<T>(old * s);
     return old;
 }
 
-template <class T> T rescale(T &val, uint8_t s) {
+template <class T> T scale(T &val, uint8_t s) {
     T old = val;
     val = old * s / 255;
     return old;
@@ -63,12 +63,55 @@ bool Image::write(const char *filename) const {
     return success != 0;
 }
 
+Image &Image::rescaleLuminance(float lo, float hi) {
+    float min = std::numeric_limits<float>::max();
+    float max = std::numeric_limits<float>::min();
+    if (channels < 3) {
+        return *this;
+    }
+
+    auto getLuminance = [&](uint8_t *p) { return (p[0] * 0.2126f + p[1] * 0.7152f + p[2] * 0.0722f) / 255.f; };
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            float lum = getLuminance(pixel(x, y));
+            min = std::min(lum, min);
+            max = std::max(lum, max);
+        }
+    }
+
+    if (max - min > 0.01f) {
+        float ratio = (hi - lo) / (max - min);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                float l = getLuminance(pixel(x, y));
+                float s = (l - min) * ratio;
+                if (l < 0.01f) {
+                    pixel(x, y)[0] = 0;
+                    pixel(x, y)[1] = 0;
+                    pixel(x, y)[2] = 0;
+                } else {
+                    scale(pixel(x, y)[0], s / l);
+                    scale(pixel(x, y)[1], s / l);
+                    scale(pixel(x, y)[2], s / l);
+                }
+
+                pixel(x, y)[0] += bound<uint8_t>(255 * lo);
+                pixel(x, y)[1] += bound<uint8_t>(255 * lo);
+                pixel(x, y)[2] += bound<uint8_t>(255 * lo);
+            }
+        }
+    }
+
+    return *this;
+}
+
 Image &Image::colorMask(float r, float g, float b) {
     assert(channels == 3);
     for (int i = 0; i < data.size(); i += channels) {
-        rescale(data[i], r);
-        rescale(data[i + 1], g);
-        rescale(data[i + 2], b);
+        scale(data[i], r);
+        scale(data[i + 1], g);
+        scale(data[i + 2], b);
     }
     return *this;
 }
@@ -76,9 +119,9 @@ Image &Image::colorMask(float r, float g, float b) {
 Image &Image::colorMask(uint8_t r, uint8_t g, uint8_t b) {
     assert(channels == 3);
     for (int i = 0; i < data.size(); i += channels) {
-        rescale(data[i], r);
-        rescale(data[i + 1], g);
-        rescale(data[i + 2], b);
+        scale(data[i], r);
+        scale(data[i + 1], g);
+        scale(data[i + 2], b);
     }
     return *this;
 }
@@ -177,7 +220,7 @@ void Image::subdivideBW(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Imag
 
     auto [subdivide, val] = subdivideCheckBW(sx, sy, sw, sh);
 
-    if (subdivide && sw > 16 && sh > 16) {
+    if (subdivide && sw > 4 && sh > 4) {
         uint16_t sw_l = sw / 2;
         uint16_t sw_r = (sw + 1) / 2;
         uint16_t sh_t = sh / 2;
