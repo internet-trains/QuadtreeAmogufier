@@ -4,10 +4,11 @@
 #include "Image.h"
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <shared_mutex>
 #include <tuple>
 #include <variant>
-#include <vector>
 
 using byte = uint8_t;
 
@@ -24,58 +25,42 @@ struct Rect {
     int h;
 };
 
+class SubdivisionChecker {
+  public:
+    using Ptr = std::shared_ptr<SubdivisionChecker>;
+
+    virtual ~SubdivisionChecker() = default;
+    virtual std::tuple<bool, std::variant<byte, RgbColor>> Check(const Image &frame, Rect r) const = 0;
+};
+
 class Quadtree {
   public:
-    Quadtree(const Image &leafImage, Rect bounds, std::size_t maxDepth = 5);
+    Quadtree(Image leafImage, int minSize, SubdivisionChecker::Ptr checker);
 
-    virtual ~Quadtree() = default;
-
-    Image ProcessFrame(const Image &frame) const;
-
-    virtual std::tuple<bool, std::variant<byte, RgbColor>> CheckSubdivision(const Image &frame, Rect r) const = 0;
+    Image ProcessFrame(const Image &frame);
 
   private:
-    void ProcessFrame(Image &dst, Rect bounds, std::size_t depth = 0) const;
+    void ProcessFrame(Image &dst, Rect bounds);
 
-    Rect mRootBounds;
-    std::vector<Image> mLeafCache;
+    const Image &GetLeaf(Rect bounds);
+
+    std::unique_ptr<std::shared_mutex> mCacheMutex = std::make_unique<std::shared_mutex>();
+
+    std::map<std::pair<int, int>, Image> mLeafCache;
+    Image mLeafImage;
+    int mMinSize;
+    SubdivisionChecker::Ptr mSubChecker;
 };
 
 struct BWParameters {
     int similarityThreshold;
 };
 
-class QuadtreeBW : public Quadtree {
-  public:
-    QuadtreeBW(const Image &leafImage, Rect bounds, const BWParameters &params, std::size_t maxDepth = 5);
-
-    ~QuadtreeBW() override = default;
-
-    std::tuple<bool, std::variant<byte, RgbColor>> CheckSubdivision(const Image &frame, Rect r) const override;
-
-  private:
-    BWParameters mParams;
-};
-
 struct ColorParameters {
     int similarityThreshold;
 };
 
-class QuadtreeColor : public Quadtree {
-  public:
-    QuadtreeColor(const Image &leafImage, Rect bounds, const ColorParameters &params, std::size_t maxDepth = 5);
-
-    ~QuadtreeColor() override = default;
-
-    std::tuple<bool, std::variant<byte, RgbColor>> CheckSubdivision(const Image &frame, Rect r) const override;
-
-  private:
-    ColorParameters mParams;
-};
-
-std::unique_ptr<Quadtree> CreateQuadtree(const Image &leafImage, Rect bounds, const BWParameters &params,
-                                         std::size_t maxDepth = 5);
-std::unique_ptr<Quadtree> CreateQuadtree(const Image &leafImage, Rect bounds, const ColorParameters &params,
-                                         std::size_t maxDepth = 5);
+SubdivisionChecker::Ptr CreateSubdivisionChecker(const BWParameters &params);
+SubdivisionChecker::Ptr CreateSubdivisionChecker(const ColorParameters &params);
 
 #endif

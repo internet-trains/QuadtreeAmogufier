@@ -1,6 +1,7 @@
 #include "Quadtree.h"
 
 #include <algorithm>
+#include <mutex>
 
 namespace {
 std::vector<Image> BuildLeafCache(const Image &leafImage, Rect bounds, std::size_t maxDepth) {
@@ -27,12 +28,12 @@ int GetBestSplitCount(Rect bounds) {
 }
 } // namespace
 
-Quadtree::Quadtree(const Image &leafImage, Rect bounds, std::size_t maxDepth)
-    : mRootBounds(bounds), mLeafCache(BuildLeafCache(leafImage, bounds, maxDepth)) {}
+Quadtree::Quadtree(Image leafImage, int minSize, SubdivisionChecker::Ptr checker)
+    : mLeafImage(std::move(leafImage)), mMinSize(minSize), mSubChecker(std::move(checker)) {}
 
-Image Quadtree::ProcessFrame(const Image &frame) const {
+Image Quadtree::ProcessFrame(const Image &frame) {
     Image ret = frame;
-    Rect bounds = mRootBounds;
+    Rect bounds{0, 0, frame.width(), frame.height()};
     bool horizontal = bounds.w > bounds.h;
     int &size = horizontal ? bounds.w : bounds.h;
     int &pos = horizontal ? bounds.x : bounds.y;
@@ -62,12 +63,11 @@ struct ColorVisitor {
     RgbColor operator()(RgbColor color) { return color; }
 };
 
-void Quadtree::ProcessFrame(Image &frame, Rect bounds, std::size_t depth) const {
-
-    auto [subdivide, colorVariant] = CheckSubdivision(frame, bounds);
+void Quadtree::ProcessFrame(Image &frame, Rect bounds) {
+    auto [subdivide, colorVariant] = mSubChecker->Check(frame, bounds);
     auto color = std::visit(ColorVisitor{}, colorVariant);
-    if (depth == mLeafCache.size() || !subdivide) {
-        frame.overlay(mLeafCache.back().colorMaskNew(color.r, color.g, color.b), bounds.x, bounds.y);
+    if (!subdivide || bounds.w <= mMinSize || bounds.h <= mMinSize) {
+        frame.overlay(GetLeaf(bounds).colorMaskNew(color.r, color.g, color.b), bounds.x, bounds.y);
     } else {
         int ulX = bounds.x;
         int ulY = bounds.y;
@@ -75,10 +75,33 @@ void Quadtree::ProcessFrame(Image &frame, Rect bounds, std::size_t depth) const 
         int mmY = bounds.y + bounds.h / 2;
         int brX = bounds.x + bounds.w;
         int brY = bounds.y + bounds.h;
-        ProcessFrame(frame, Rect{ulX, ulY, mmX - ulX, mmY - ulY}, depth + 1);
-        ProcessFrame(frame, Rect{mmX, ulY, brX - mmX, mmY - ulY}, depth + 1);
-        ProcessFrame(frame, Rect{ulX, mmY, mmX - ulX, brY - mmY}, depth + 1);
-        ProcessFrame(frame, Rect{mmX, mmY, brX - mmX, brY - mmY}, depth + 1);
+        ProcessFrame(frame, Rect{ulX, ulY, mmX - ulX, mmY - ulY});
+        ProcessFrame(frame, Rect{mmX, ulY, brX - mmX, mmY - ulY});
+        ProcessFrame(frame, Rect{ulX, mmY, mmX - ulX, brY - mmY});
+        ProcessFrame(frame, Rect{mmX, mmY, brX - mmX, brY - mmY});
+    }
+}
+
+const Image &Quadtree::GetLeaf(Rect bounds) {
+    auto size = std::make_pair(bounds.w, bounds.h);
+
+    {
+        std::shared_lock lock(*mCacheMutex);
+        auto it = mLeafCache.find(size);
+        if (it != mLeafCache.end())
+            return it->second;
+    }
+
+    {
+        // Possible for multiple threads to get here just not simultaneously; ultimately this would be fine but would do
+        // extra work by doing redundant resizing which gets discarded, so we're going to do a find again.
+        // An alternative is to use call_once, but that would require an extra map of once_flag.
+        std::unique_lock lock(*mCacheMutex);
+        auto it = mLeafCache.find(size);
+        if (it == mLeafCache.end()) {
+            it = mLeafCache.emplace(size, mLeafImage.resizeFastNew(size.first, size.second)).first;
+        }
+        return it->second;
     }
 }
 
@@ -90,68 +113,83 @@ template <class T> T bound(double x) {
         return std::numeric_limits<T>::max();
     return static_cast<T>(std::round(x));
 }
+
+class SubdivisionBW : public SubdivisionChecker {
+  public:
+    SubdivisionBW(const BWParameters &params) : mParams(params) {}
+
+    ~SubdivisionBW() override = default;
+
+    std::tuple<bool, std::variant<byte, RgbColor>> Check(const Image &frame, Rect r) const override {
+        double sum = 0;
+        uint8_t min = std::numeric_limits<uint8_t>::max();
+        uint8_t max = std::numeric_limits<uint8_t>::min();
+
+        for (int y = r.y; y < r.h + r.y; y++) {
+            for (int x = r.x; x < r.w + r.x; x++) {
+                uint8_t p = frame.pixel(x, y)[0];
+                min = std::min(min, p);
+                max = std::max(max, p);
+                sum += p;
+            }
+        }
+
+        return {max - min > mParams.similarityThreshold, bound<uint8_t>(sum / (r.h * r.w))};
+    }
+
+  private:
+    BWParameters mParams;
+};
+
+class SubdivisionColor : public SubdivisionChecker {
+  public:
+    SubdivisionColor(const ColorParameters &params) : mParams(params) {}
+
+    ~SubdivisionColor() override = default;
+
+    std::tuple<bool, std::variant<byte, RgbColor>> Check(const Image &frame, Rect r) const override {
+        bool subdivide = false;
+
+        auto center = frame.pixel(r.x + r.w / 2, r.y + r.h / 2);
+        uint8_t colR = center[0];
+        uint8_t colG = center[1];
+        uint8_t colB = center[2];
+        double sumR = 0;
+        double sumG = 0;
+        double sumB = 0;
+
+        auto sqr = [](auto x) { return x * x; };
+
+        auto thresh2 = sqr(mParams.similarityThreshold);
+
+        for (int y = r.y; y < r.h + r.y; y++) {
+            for (int x = r.x; x < r.w + r.x; x++) {
+                auto pix = frame.pixel(x, y);
+                if (sqr(pix[0] - colR) + sqr(pix[1] - colG) + sqr(pix[2] - colB) > thresh2) {
+                    subdivide = true;
+                }
+                sumR += pix[0];
+                sumG += pix[1];
+                sumB += pix[2];
+            }
+        }
+
+        sumR /= r.h * r.w;
+        sumG /= r.h * r.w;
+        sumB /= r.h * r.w;
+
+        return {subdivide, RgbColor{bound<uint8_t>(sumR), bound<uint8_t>(sumG), bound<uint8_t>(sumB)}};
+    }
+
+  private:
+    ColorParameters mParams;
+};
+
 } // namespace
 
-QuadtreeBW::QuadtreeBW(const Image &leafImage, Rect bounds, const BWParameters &params, std::size_t maxDepth)
-    : Quadtree(leafImage, bounds, maxDepth), mParams(params) {}
-
-std::tuple<bool, std::variant<byte, RgbColor>> QuadtreeBW::CheckSubdivision(const Image &frame, Rect r) const {
-    double sum = 0;
-    uint8_t min = std::numeric_limits<uint8_t>::max();
-    uint8_t max = std::numeric_limits<uint8_t>::min();
-
-    for (int y = r.y; y < r.h + r.y; y++) {
-        for (int x = r.x; x < r.w + r.x; x++) {
-            uint8_t p = frame.pixel(x, y)[0];
-            min = std::min(min, p);
-            max = std::max(max, p);
-            sum += p;
-        }
-    }
-
-    return {max - min > mParams.similarityThreshold, bound<uint8_t>(sum / (r.h * r.w))};
+SubdivisionChecker::Ptr CreateSubdivisionChecker(const BWParameters &params) {
+    return std::make_shared<SubdivisionBW>(params);
 }
-
-QuadtreeColor::QuadtreeColor(const Image &leafImage, Rect bounds, const ColorParameters &params, std::size_t maxDepth)
-    : Quadtree(leafImage, bounds, maxDepth), mParams(params) {}
-
-std::tuple<bool, std::variant<byte, RgbColor>> QuadtreeColor::CheckSubdivision(const Image &frame, Rect r) const {
-    bool subdivide = false;
-
-    auto center = frame.pixel(r.x + r.w / 2, r.y + r.h / 2);
-    uint8_t colR = center[0];
-    uint8_t colG = center[1];
-    uint8_t colB = center[2];
-    double sumR = 0;
-    double sumG = 0;
-    double sumB = 0;
-
-    auto sqr = [](auto x) { return x * x; };
-
-    for (int y = r.y; y < r.h + r.y; y++) {
-        for (int x = r.x; x < r.w + r.x; x++) {
-            auto pix = frame.pixel(x, y);
-            if (sqr(pix[0] - colR) + sqr(pix[1] - colG) + sqr(pix[2] - colB) > mParams.similarityThreshold) {
-                subdivide = true;
-            }
-            sumR += pix[0];
-            sumG += pix[1];
-            sumB += pix[2];
-        }
-    }
-
-    sumR /= r.h * r.w;
-    sumG /= r.h * r.w;
-    sumB /= r.h * r.w;
-
-    return {subdivide, RgbColor{bound<uint8_t>(sumR), bound<uint8_t>(sumG), bound<uint8_t>(sumB)}};
-}
-
-std::unique_ptr<Quadtree> CreateQuadtree(const Image &leafImage, Rect bounds, const BWParameters &params,
-                                         std::size_t maxDepth) {
-    return std::make_unique<QuadtreeBW>(leafImage, bounds, params, maxDepth);
-}
-std::unique_ptr<Quadtree> CreateQuadtree(const Image &leafImage, Rect bounds, const ColorParameters &params,
-                                         std::size_t maxDepth) {
-    return std::make_unique<QuadtreeColor>(leafImage, bounds, params, maxDepth);
+SubdivisionChecker::Ptr CreateSubdivisionChecker(const ColorParameters &params) {
+    return std::make_shared<SubdivisionColor>(params);
 }
