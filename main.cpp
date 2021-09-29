@@ -25,6 +25,7 @@ int main(int argc, char *argv[]) {
         ("m,mode", "Must be either 'bw' or 'color'", cxxopts::value<std::string>()->default_value("color"))
         ("s,similarity", "Similarity threshold for colors (0-255)", cxxopts::value<int>()->default_value("16"))
         ("b,background", "Background color", cxxopts::value<std::string>()->default_value("#000000"))
+        ("p,out-resolution", "Output vertical resolution", cxxopts::value<int>()->implicit_value("480"))
         ("min-size", "Minimum leaf dimension", cxxopts::value<int>()->default_value("8"))
         ("anim-start", "First frame index of animation frames", cxxopts::value<int>()->default_value("0"))
         ("input-start", "First frame index of input frames", cxxopts::value<int>()->default_value("1"))
@@ -138,6 +139,11 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
 
     std::cout << "Generating frame tasks...\n";
     int taskCount = 0;
+    std::optional<int> outRes;
+    if (options.count("out-resolution")) {
+        outRes = options["out-resolution"].as<int>();
+    }
+
     for (int frameIndex = options["input-start"].as<int>();; ++frameIndex) {
         fs::path inPath(std::format(inputPat, frameIndex));
         fs::path outPath(std::format(outputPat, frameIndex));
@@ -149,7 +155,19 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
             if (outPath.has_parent_path()) {
                 fs::create_directories(outPath.parent_path());
             }
-            tree->ProcessFrame(Image(inPath.string().c_str())).save(outPath.string().c_str());
+            auto frame = tree->ProcessFrame(Image(inPath.string().c_str()));
+            if (outRes) {
+                int h = *outRes;
+                if (h % 2) {
+                    ++h;
+                }
+                int w = frame.width() * h / frame.height();
+                if (w % 2) {
+                    ++w;
+                }
+                frame = frame.resizeFastNew(w, h);
+            }
+            frame.save(outPath.string().c_str());
         });
         ++taskCount;
     }
