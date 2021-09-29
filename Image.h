@@ -58,19 +58,6 @@ struct Image {
     Image cropNew(int cx, int cy, int cw, int ch) const;
 
     Image &rect(Rect r, RgbColor color);
-
-    Image quadifyFrameBW(std::map<std::pair<int, int>, Image> &resizedAmogi) const;
-    void subdivideBW(int sx, int sy, int sw, int sh, Image &frame,
-                     std::map<std::pair<int, int>, Image> &resizedAmogi) const;
-    std::tuple<bool, uint8_t> subdivideCheckBW(int sx, int sy, int sw, int sh) const;
-
-    Image quadifyFrameRGB(std::map<std::pair<int, int>, Image> &resizedAmogi) const;
-    void subdivideRGB(int sx, int sy, int sw, int sh, Image &frameRGB,
-                      std::map<std::pair<int, int>, Image> &resizedAmogi) const;
-    std::tuple<bool, uint8_t, uint8_t, uint8_t> subdivideCheckRGB(int sx, int sy, int sw, int sh) const;
-
-    std::map<std::pair<int, int>, Image> preloadResized(int sw, int sh) const;
-    void subdivideValues(int sx, int sy, int sw, int sh, std::map<std::pair<int, int>, Image> &image_map) const;
 };
 
 #endif
