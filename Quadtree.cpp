@@ -28,11 +28,10 @@ int GetBestSplitCount(Rect bounds) {
 }
 } // namespace
 
-Quadtree::Quadtree(Image leafImage, int minSize, SubdivisionChecker::Ptr checker)
-    : mLeafImage(std::move(leafImage)), mMinSize(minSize), mSubChecker(std::move(checker)) {}
+Quadtree::Quadtree(Image leafImage, QuadtreeParameters params, SubdivisionChecker::Ptr checker)
+    : mLeafImage(std::move(leafImage)), mParams(std::move(params)), mSubChecker(std::move(checker)) {}
 
-Image Quadtree::ProcessFrame(const Image &frame) {
-    Image ret = frame;
+Image Quadtree::ProcessFrame(Image frame) {
     Rect bounds{0, 0, frame.width(), frame.height()};
     bool horizontal = bounds.w > bounds.h;
     int &size = horizontal ? bounds.w : bounds.h;
@@ -44,7 +43,7 @@ Image Quadtree::ProcessFrame(const Image &frame) {
     size = step;
 
     for (int i = 0; i < splitCount; ++i) {
-        ProcessFrame(ret, bounds);
+        ProcessFrame(frame, bounds);
 
         pos += size;
         err += errStep;
@@ -55,7 +54,7 @@ Image Quadtree::ProcessFrame(const Image &frame) {
             size = step;
         }
     }
-    return ret;
+    return frame;
 }
 
 struct ColorVisitor {
@@ -66,8 +65,9 @@ struct ColorVisitor {
 void Quadtree::ProcessFrame(Image &frame, Rect bounds) {
     auto [subdivide, colorVariant] = mSubChecker->Check(frame, bounds);
     auto color = std::visit(ColorVisitor{}, colorVariant);
-    if (!subdivide || bounds.w <= mMinSize || bounds.h <= mMinSize) {
-        frame.overlay(GetLeaf(bounds).colorMaskNew(color.r, color.g, color.b), bounds.x, bounds.y);
+    if (!subdivide || bounds.w <= mParams.minSize || bounds.h <= mParams.minSize) {
+        frame.rect(bounds, mParams.background)
+            .overlay(GetLeaf(bounds).colorMaskNew(color.r, color.g, color.b), bounds.x, bounds.y);
     } else {
         int ulX = bounds.x;
         int ulY = bounds.y;

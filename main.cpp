@@ -11,20 +11,7 @@
 
 namespace fs = std::filesystem;
 
-void workBW(int i, int index, std::vector<std::map<std::pair<int, int>, Image>> &preloadedResized);
-void workCol(int i, int index, std::vector<std::map<std::pair<int, int>, Image>> &preloadedResized);
-
 void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::Ptr checker);
-void createVideoFramesBW(int start, int end, int repeatFrames);
-void createVideoFramesCol(int start, int end, int repeatFrames);
-
-void showUsage() {
-    std::cout << "Usage: [?.exe] [BW | Col] [Start] [End] (SFRC)\n"
-              << "BW | Col:   Black and White or Colored Image Sequence\n"
-              << "Start:      Frame to start on (int)\n"
-              << "End:        Frame to end on (int)\n"
-              << "SFRC:       How often to repeat Sprite frames (optional, default 2)" << std::endl;
-}
 
 int main(int argc, char *argv[]) {
     cxxopts::Options optParser("QuadtreeAmoguifier", "Processes a sequence of frames into a quadtree animation.");
@@ -37,6 +24,7 @@ int main(int argc, char *argv[]) {
         ("o,output", "Path pattern to output frames", cxxopts::value<std::string>()->default_value("out/img_{}.png"))
         ("m,mode", "Must be either 'bw' or 'color'", cxxopts::value<std::string>()->default_value("color"))
         ("s,similarity", "Similarity threshold for colors (0-255)", cxxopts::value<int>()->default_value("16"))
+        ("b,background", "Background color", cxxopts::value<std::string>()->default_value("#000000"))
         ("min-size", "Minimum leaf dimension", cxxopts::value<int>()->default_value("8"))
         ("anim-start", "First frame index of animation frames", cxxopts::value<int>()->default_value("0"))
         ("input-start", "First frame index of input frames", cxxopts::value<int>()->default_value("1"))
@@ -74,6 +62,38 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
+int parseHexDigit(char digit) {
+    char d = static_cast<char>(std::tolower(digit));
+    if ('a' <= d && d <= 'f') {
+        return 10 + d - 'a';
+    }
+    if ('0' <= d && d <= '9') {
+        return d - '0';
+    }
+    return 0;
+}
+
+RgbColor parseColor(const std::string &str) {
+    if (str.empty()) {
+        return {0, 0, 0};
+    }
+
+    int o = str[0] == '#' ? 1 : 0;
+    if (str.size() == 3 + o) {
+        return RgbColor{byte(parseHexDigit(str[o]) * 16), byte(parseHexDigit(str[o + 1]) * 16),
+                        byte(parseHexDigit(str[o + 2]) * 16)};
+    }
+
+    if (str.size() < 6 + o) {
+        return {0, 0, 0};
+    }
+
+    int r = parseHexDigit(str[o]) * 16 + parseHexDigit(str[o + 1]);
+    int g = parseHexDigit(str[o + 2]) * 16 + parseHexDigit(str[o + 3]);
+    int b = parseHexDigit(str[o + 4]) * 16 + parseHexDigit(str[o + 5]);
+    return RgbColor{byte(r), byte(g), byte(b)};
+}
+
 void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::Ptr checker) {
     auto animPat = options["anim"].as<std::string>();
     auto inputPat = options["input"].as<std::string>();
@@ -88,8 +108,10 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
         if (path == lastPath || !fs::exists(path)) {
             break;
         }
-        frameTrees.emplace_back(Image{path.string().c_str()}.rescaleLuminance(), options["min-size"].as<int>(),
-                                checker);
+        QuadtreeParameters params;
+        params.minSize = options["min-size"].as<int>();
+        params.background = parseColor(options["background"].as<std::string>());
+        frameTrees.emplace_back(Image{path.string().c_str()}.rescaleLuminance(), params, checker);
         lastPath = path;
     }
 
@@ -135,75 +157,4 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
     std::cout << "Processing " << taskCount << " frames...\n";
 
     pool.wait_for_tasks();
-}
-
-void createVideoFramesBW(int start, int end, int repeatFrames) {
-
-    std::vector<std::map<std::pair<int, int>, Image>> preloadedResized;
-    int width;
-    int height;
-    std::string first_name("in/img_" + std::to_string(start) + ".png");
-    Image first_frame(first_name.c_str());
-    width = first_frame.width();
-    height = first_frame.height();
-
-    for (int i = 0; i < 6; i++) {
-        std::string amogus_name("res/" + std::to_string(i) + ".png");
-        Image amogus(amogus_name.c_str());
-
-        amogus.rescaleLuminance();
-        preloadedResized.push_back(amogus.preloadResized(width, height));
-    }
-
-    thread_pool pool;
-
-    for (int i = start; i <= end; i++) {
-        int index = (i % (6 * repeatFrames)) / repeatFrames;
-        pool.submit(workBW, i, index, std::ref(preloadedResized));
-    }
-
-    pool.wait_for_tasks();
-}
-
-void workBW(int i, int index, std::vector<std::map<std::pair<int, int>, Image>> &preloadedResized) {
-    std::string frame_name("in/img_" + std::to_string(i) + ".png");
-    Image frame(frame_name.c_str());
-    Image frame_done = frame.quadifyFrameBW(preloadedResized.at(index));
-    std::string save_loc("out/img_" + std::to_string(i) + ".png");
-    frame_done.save(save_loc.c_str());
-}
-
-void createVideoFramesCol(int start, int end, int repeatFrames) {
-
-    std::vector<std::map<std::pair<int, int>, Image>> preloadedResized;
-    int width;
-    int height;
-    std::string first_name("in/img_" + std::to_string(start) + ".png");
-    Image first_frame(first_name.c_str());
-    width = first_frame.width();
-    height = first_frame.height();
-
-    for (int i = 0; i < 6; i++) {
-        std::string amogus_name("res/" + std::to_string(i) + ".png");
-        Image amogus(amogus_name.c_str());
-
-        preloadedResized.push_back(amogus.preloadResized(width, height));
-    }
-
-    thread_pool pool;
-
-    for (int i = start; i <= end; i++) {
-        int index = (i % (6 * repeatFrames)) / repeatFrames;
-        pool.submit(workCol, i, index, std::ref(preloadedResized));
-    }
-
-    pool.wait_for_tasks();
-}
-
-void workCol(int i, int index, std::vector<std::map<std::pair<int, int>, Image>> &preloadedResized) {
-    std::string frame_name("in/img_" + std::to_string(i) + ".png");
-    Image frame(frame_name.c_str());
-    Image frame_done = frame.quadifyFrameRGB(preloadedResized.at(index));
-    std::string save_loc("out/img_" + std::to_string(i) + ".png");
-    frame_done.save(save_loc.c_str());
 }

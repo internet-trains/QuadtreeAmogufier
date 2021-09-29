@@ -10,19 +10,17 @@
 #include <tuple>
 #include <variant>
 
-using byte = uint8_t;
-
-struct RgbColor {
-    byte r;
-    byte g;
-    byte b;
+struct BWParameters {
+    int similarityThreshold;
 };
 
-struct Rect {
-    int x;
-    int y;
-    int w;
-    int h;
+struct ColorParameters {
+    int similarityThreshold;
+};
+
+struct QuadtreeParameters {
+    int minSize;
+    RgbColor background;
 };
 
 class SubdivisionChecker {
@@ -35,9 +33,9 @@ class SubdivisionChecker {
 
 class Quadtree {
   public:
-    Quadtree(Image leafImage, int minSize, SubdivisionChecker::Ptr checker);
+    Quadtree(Image leafImage, QuadtreeParameters params, SubdivisionChecker::Ptr checker);
 
-    Image ProcessFrame(const Image &frame);
+    Image ProcessFrame(Image frame);
 
   private:
     void ProcessFrame(Image &dst, Rect bounds);
@@ -48,16 +46,8 @@ class Quadtree {
 
     std::map<std::pair<int, int>, Image> mLeafCache;
     Image mLeafImage;
-    int mMinSize;
+    QuadtreeParameters mParams;
     SubdivisionChecker::Ptr mSubChecker;
-};
-
-struct BWParameters {
-    int similarityThreshold;
-};
-
-struct ColorParameters {
-    int similarityThreshold;
 };
 
 SubdivisionChecker::Ptr CreateSubdivisionChecker(const BWParameters &params);

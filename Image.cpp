@@ -123,7 +123,6 @@ Image Image::colorMaskNew(uint8_t r, uint8_t g, uint8_t b) const {
 }
 
 Image &Image::overlay(const Image &source, int x, int y) {
-
     for (int sy = std::max(0, -y); sy < source.mHeight; sy++) {
         if (sy + y >= mHeight)
             break;
@@ -152,6 +151,17 @@ Image &Image::overlay(const Image &source, int x, int y) {
                         dstPixel[3] = bound<uint8_t>(outAlpha * 255.f);
                 }
             }
+        }
+    }
+
+    return *this;
+}
+
+Image &Image::rect(Rect r, RgbColor color) {
+    uint8_t colors[4] = {color.r, color.g, color.b, 255};
+    for (int y = std::max(0, r.y); y < std::min(r.y + r.h, mHeight); y++) {
+        for (int x = std::max(0, r.x); x < std::min(r.x + r.w, mWidth); x++) {
+            std::copy_n(colors, mChannels, pixel(x, y));
         }
     }
 

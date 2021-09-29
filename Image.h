@@ -6,12 +6,27 @@
 #include <map>
 #include <vector>
 
+using byte = uint8_t;
+
+struct RgbColor {
+    byte r;
+    byte g;
+    byte b;
+};
+
+struct Rect {
+    int x;
+    int y;
+    int w;
+    int h;
+};
+
 struct Image {
   private:
     int mWidth;
     int mHeight;
     int mChannels;
-    std::vector<uint8_t> mData;
+    std::vector<byte> mData;
 
   public:
     Image();
@@ -34,13 +49,15 @@ struct Image {
     Image &rescaleLuminance(float hi) { return rescaleLuminance(0, hi); }
     Image &rescaleLuminance() { return rescaleLuminance(0, 1); }
 
-    Image& colorMask(float r, float g, float b);
+    Image &colorMask(float r, float g, float b);
     Image &colorMask(uint8_t r, uint8_t g, uint8_t b);
     Image colorMaskNew(float r, float g, float b) const;
     Image colorMaskNew(uint8_t r, uint8_t g, uint8_t b) const;
     Image &overlay(const Image &source, int x, int y);
     Image resizeFastNew(int rw, int rh) const;
     Image cropNew(int cx, int cy, int cw, int ch) const;
+
+    Image &rect(Rect r, RgbColor color);
 
     Image quadifyFrameBW(std::map<std::pair<int, int>, Image> &resizedAmogi) const;
     void subdivideBW(int sx, int sy, int sw, int sh, Image &frame,
