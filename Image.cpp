@@ -51,7 +51,6 @@ Image::Image(const Image &img) : w(img.w), h(img.h), channels(img.channels), dat
 bool Image::read(const char *filename) {
     uint8_t *temp = stbi_load(filename, &w, &h, &channels, 0);
     size = w * h * channels;
-    // data.clear();
     data.insert(data.end(), &temp[0], &temp[size]);
     stbi_image_free(temp);
     return true;
@@ -157,7 +156,7 @@ Image &Image::overlay(const Image &source, int x, int y) {
             } else {
                 float outAlpha = srcAlpha + dstAlpha * (1 - srcAlpha);
                 if (outAlpha < .01) {
-                    std::fill_n(dstPixel, channels, 0);
+                    std::fill_n(dstPixel, channels, uint8_t(0));
                 } else {
                     for (int channel = 0; channel < channels; channel++) {
                         dstPixel[channel] = bound<uint8_t>((srcPixel[channel] / 255.f * srcAlpha +
@@ -174,7 +173,7 @@ Image &Image::overlay(const Image &source, int x, int y) {
     return *this;
 }
 
-Image Image::resizeFastNew(uint16_t rw, uint16_t rh) const {
+Image Image::resizeFastNew(int rw, int rh) const {
     Image resizedImage(rw, rh, channels);
     double x_ratio = w / (double)rw;
     double y_ratio = h / (double)rh;
@@ -188,14 +187,14 @@ Image Image::resizeFastNew(uint16_t rw, uint16_t rh) const {
     return resizedImage;
 }
 
-Image Image::cropNew(uint16_t cx, uint16_t cy, uint16_t cw, uint16_t ch) const {
+Image Image::cropNew(int cx, int cy, int cw, int ch) const {
 
     Image croppedImage(cw, ch, channels);
 
-    for (uint16_t y = 0; y < ch; y++) {
+    for (int y = 0; y < ch; y++) {
         if (y + cy >= h)
             break;
-        for (uint16_t x = 0; x < cw; x++) {
+        for (int x = 0; x < cw; x++) {
             if (x + cx >= w)
                 break;
             std::copy_n(pixel(x + cx, y + cy), channels, croppedImage.pixel(x, y));
@@ -215,16 +214,16 @@ Image Image::quadifyFrameBW(std::map<std::pair<int, int>, Image> &resizedAmogi) 
 
 // sw: subdivided x | sy subdivided y
 // sw: subdivided width | sh subdivided height
-void Image::subdivideBW(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Image &frame,
+void Image::subdivideBW(int sx, int sy, int sw, int sh, Image &frame,
                         std::map<std::pair<int, int>, Image> &resizedAmogi) const {
 
     auto [subdivide, val] = subdivideCheckBW(sx, sy, sw, sh);
 
     if (subdivide && sw > 4 && sh > 4) {
-        uint16_t sw_l = sw / 2;
-        uint16_t sw_r = (sw + 1) / 2;
-        uint16_t sh_t = sh / 2;
-        uint16_t sh_b = (sh + 1) / 2;
+        int sw_l = sw / 2;
+        int sw_r = (sw + 1) / 2;
+        int sh_t = sh / 2;
+        int sh_b = (sh + 1) / 2;
         subdivideBW(sx, sy, sw_l, sh_t, frame, resizedAmogi);
         subdivideBW(sx + sw_r, sy, sw_l, sh_t, frame, resizedAmogi);
         subdivideBW(sx, sy + sh_b, sw_l, sh_t, frame, resizedAmogi);
@@ -236,13 +235,13 @@ void Image::subdivideBW(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Imag
     }
 }
 
-std::tuple<bool, uint8_t> Image::subdivideCheckBW(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh) const {
+std::tuple<bool, uint8_t> Image::subdivideCheckBW(int sx, int sy, int sw, int sh) const {
     double sum = 0;
     uint8_t min = std::numeric_limits<uint8_t>::max();
     uint8_t max = std::numeric_limits<uint8_t>::min();
 
-    for (uint16_t y = sy; y < sh + sy; y++) {
-        for (uint16_t x = sx; x < sw + sx; x++) {
+    for (int y = sy; y < sh + sy; y++) {
+        for (int x = sx; x < sw + sx; x++) {
             uint8_t p = pixel(x, y)[0];
             min = std::min(min, p);
             max = std::max(max, p);
@@ -261,16 +260,16 @@ Image Image::quadifyFrameRGB(std::map<std::pair<int, int>, Image> &resizedAmogi)
     return frameRGB;
 }
 
-void Image::subdivideRGB(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Image &frameRGB,
+void Image::subdivideRGB(int sx, int sy, int sw, int sh, Image &frameRGB,
                          std::map<std::pair<int, int>, Image> &resizedAmogi) const {
 
     auto [subdivide, valR, valG, valB] = subdivideCheckRGB(sx, sy, sw, sh);
 
     if (subdivide && sw > 4 && sh > 4) {
-        uint16_t sw_l = sw / 2;
-        uint16_t sw_r = (sw + 1) / 2;
-        uint16_t sh_t = sh / 2;
-        uint16_t sh_b = (sh + 1) / 2;
+        int sw_l = sw / 2;
+        int sw_r = (sw + 1) / 2;
+        int sh_t = sh / 2;
+        int sh_b = (sh + 1) / 2;
         subdivideRGB(sx, sy, sw_l, sh_t, frameRGB, resizedAmogi);
         subdivideRGB(sx + sw_r, sy, sw_l, sh_t, frameRGB, resizedAmogi);
         subdivideRGB(sx, sy + sh_b, sw_l, sh_t, frameRGB, resizedAmogi);
@@ -281,8 +280,7 @@ void Image::subdivideRGB(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Ima
     }
 }
 
-std::tuple<bool, uint8_t, uint8_t, uint8_t> Image::subdivideCheckRGB(uint16_t sx, uint16_t sy, uint16_t sw,
-                                                                     uint16_t sh) const {
+std::tuple<bool, uint8_t, uint8_t, uint8_t> Image::subdivideCheckRGB(int sx, int sy, int sw, int sh) const {
     bool subdivide = false;
 
     auto center = pixel(sx + sw / 2, sy + sh / 2);
@@ -295,8 +293,8 @@ std::tuple<bool, uint8_t, uint8_t, uint8_t> Image::subdivideCheckRGB(uint16_t sx
 
     auto sqr = [](auto x) { return x * x; };
 
-    for (uint16_t y = sy; y < sh + sy; y++) {
-        for (uint16_t x = sx; x < sw + sx; x++) {
+    for (int y = sy; y < sh + sy; y++) {
+        for (int x = sx; x < sw + sx; x++) {
             auto pix = pixel(x, y);
             if (sqr(pix[0] - colR) + sqr(pix[1] - colG) + sqr(pix[2] - colB) > 64) {
                 subdivide = true;
