@@ -264,13 +264,9 @@ Image Image::quadifyFrameRGB(std::map<std::pair<int, int>, Image> &resizedAmogi)
 void Image::subdivideRGB(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Image &frameRGB,
                          std::map<std::pair<int, int>, Image> &resizedAmogi) const {
 
-    std::tuple<bool, int, int, int> check = subdivideCheckRGB(sx, sy, sw, sh);
-    bool quad = std::get<0>(check);
-    int valR = std::get<1>(check);
-    int valG = std::get<2>(check);
-    int valB = std::get<3>(check);
+    auto [subdivide, valR, valG, valB] = subdivideCheckRGB(sx, sy, sw, sh);
 
-    if ((!quad && sw > 8 && sh > 8) || (sw > 32 && sh > 32)) {
+    if (subdivide && sw > 4 && sh > 4) {
         uint16_t sw_l = sw / 2;
         uint16_t sw_r = (sw + 1) / 2;
         uint16_t sh_t = sh / 2;
@@ -285,33 +281,37 @@ void Image::subdivideRGB(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Ima
     }
 }
 
-std::tuple<bool, int, int, int> Image::subdivideCheckRGB(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh) const {
-    bool quad = true;
-    uint8_t colR = data.at((sx + sy * w) * channels);
-    uint8_t colG = data.at((sx + sy * w) * channels + 1);
-    uint8_t colB = data.at((sx + sy * w) * channels + 2);
-    int sumR = 0;
-    int sumG = 0;
-    int sumB = 0;
+std::tuple<bool, uint8_t, uint8_t, uint8_t> Image::subdivideCheckRGB(uint16_t sx, uint16_t sy, uint16_t sw,
+                                                                     uint16_t sh) const {
+    bool subdivide = false;
+
+    auto center = pixel(sx + sw / 2, sy + sh / 2);
+    uint8_t colR = center[0];
+    uint8_t colG = center[1];
+    uint8_t colB = center[2];
+    double sumR = 0;
+    double sumG = 0;
+    double sumB = 0;
+
+    auto sqr = [](auto x) { return x * x; };
 
     for (uint16_t y = sy; y < sh + sy; y++) {
         for (uint16_t x = sx; x < sw + sx; x++) {
-            uint8_t pixR = data.at((x + y * w) * channels);
-            sumR += pixR;
-            if (colR != pixR)
-                quad = false;
-            uint8_t pixG = data.at((x + y * w) * channels + 1);
-            sumG += pixG;
-            if (colG != pixG)
-                quad = false;
-            uint8_t pixB = data.at((x + y * w) * channels + 2);
-            sumB += pixB;
-            if (colB != pixB)
-                quad = false;
+            auto pix = pixel(x, y);
+            if (sqr(pix[0] - colR) + sqr(pix[1] - colG) + sqr(pix[2] - colB) > 64) {
+                subdivide = true;
+            }
+            sumR += pix[0];
+            sumG += pix[1];
+            sumB += pix[2];
         }
     }
 
-    return std::make_tuple(quad, (int)sumR / (sh * sw), (int)sumG / (sh * sw), (int)sumB / (sh * sw));
+    sumR /= sh * sw;
+    sumG /= sh * sw;
+    sumB /= sh * sw;
+
+    return {subdivide, bound<uint8_t>(sumR), bound<uint8_t>(sumG), bound<uint8_t>(sumB)};
 }
 
 void Image::subdivideValues(int sx, int sy, int sw, int sh, std::map<std::pair<int, int>, Image> &image_map) const {

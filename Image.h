@@ -51,7 +51,8 @@ struct Image {
     Image quadifyFrameRGB(std::map<std::pair<int, int>, Image> &resizedAmogi) const;
     void subdivideRGB(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh, Image &frameRGB,
                       std::map<std::pair<int, int>, Image> &resizedAmogi) const;
-    std::tuple<bool, int, int, int> subdivideCheckRGB(uint16_t sx, uint16_t sy, uint16_t sw, uint16_t sh) const;
+    std::tuple<bool, uint8_t, uint8_t, uint8_t> subdivideCheckRGB(uint16_t sx, uint16_t sy, uint16_t sw,
+                                                                  uint16_t sh) const;
 
     std::map<std::pair<int, int>, Image> preloadResized(int sw, int sh) const;
     void subdivideValues(int sx, int sy, int sw, int sh, std::map<std::pair<int, int>, Image> &image_map) const;
