@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <shared_mutex>
 #include <tuple>
 #include <variant>
@@ -28,7 +29,9 @@ class SubdivisionChecker {
     using Ptr = std::shared_ptr<SubdivisionChecker>;
 
     virtual ~SubdivisionChecker() = default;
-    virtual std::tuple<bool, std::variant<byte, RgbColor>> Check(const Image &frame, Rect r) const = 0;
+    virtual RgbColor GetColor(const Image &frame, Rect r) const = 0;
+    virtual std::tuple<bool, RgbColor> Merge(const RgbColor &tl, const RgbColor &tr, const RgbColor &bl,
+                                             const RgbColor &br) const = 0;
 };
 
 class Quadtree {
@@ -38,7 +41,14 @@ class Quadtree {
     Image ProcessFrame(Image frame);
 
   private:
-    void ProcessFrame(Image &dst, Rect bounds);
+    struct LeafNode {
+        RgbColor color;
+        Rect bounds;
+    };
+
+    using ProcResult = std::optional<LeafNode>;
+
+    ProcResult ProcessFrame(Image &dst, Rect bounds);
 
     const Image &GetLeaf(Rect bounds);
 

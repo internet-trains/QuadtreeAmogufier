@@ -1,6 +1,7 @@
 #include "Quadtree.h"
 
 #include <algorithm>
+#include <array>
 #include <mutex>
 
 namespace {
@@ -62,24 +63,38 @@ struct ColorVisitor {
     RgbColor operator()(RgbColor color) { return color; }
 };
 
-void Quadtree::ProcessFrame(Image &frame, Rect bounds) {
-    auto [subdivide, colorVariant] = mSubChecker->Check(frame, bounds);
-    auto color = std::visit(ColorVisitor{}, colorVariant);
-    if (!subdivide || bounds.w <= mParams.minSize || bounds.h <= mParams.minSize) {
-        frame.rect(bounds, mParams.background)
-            .overlay(GetLeaf(bounds).colorMaskNew(color.r, color.g, color.b), bounds.x, bounds.y);
-    } else {
-        int ulX = bounds.x;
-        int ulY = bounds.y;
-        int mmX = bounds.x + bounds.w / 2;
-        int mmY = bounds.y + bounds.h / 2;
-        int brX = bounds.x + bounds.w;
-        int brY = bounds.y + bounds.h;
-        ProcessFrame(frame, Rect{ulX, ulY, mmX - ulX, mmY - ulY});
-        ProcessFrame(frame, Rect{mmX, ulY, brX - mmX, mmY - ulY});
-        ProcessFrame(frame, Rect{ulX, mmY, mmX - ulX, brY - mmY});
-        ProcessFrame(frame, Rect{mmX, mmY, brX - mmX, brY - mmY});
+Quadtree::ProcResult Quadtree::ProcessFrame(Image &frame, Rect bounds) {
+    if (bounds.w <= mParams.minSize || bounds.h <= mParams.minSize) {
+        return LeafNode{mSubChecker->GetColor(frame, bounds), bounds};
     }
+
+    int ulX = bounds.x;
+    int ulY = bounds.y;
+    int mmX = bounds.x + bounds.w / 2;
+    int mmY = bounds.y + bounds.h / 2;
+    int brX = bounds.x + bounds.w;
+    int brY = bounds.y + bounds.h;
+
+    std::array<ProcResult, 4> results = {ProcessFrame(frame, Rect{ulX, ulY, mmX - ulX, mmY - ulY}),
+                                         ProcessFrame(frame, Rect{mmX, ulY, brX - mmX, mmY - ulY}),
+                                         ProcessFrame(frame, Rect{ulX, mmY, mmX - ulX, brY - mmY}),
+                                         ProcessFrame(frame, Rect{mmX, mmY, brX - mmX, brY - mmY})};
+
+    if (std::all_of(results.begin(), results.end(), [](const ProcResult &result) { return result.has_value(); })) {
+        auto [doMerge, color] =
+            std::apply([&](const auto &...args) { return mSubChecker->Merge((args->color)...); }, results);
+        if (doMerge) {
+            return LeafNode{color, bounds};
+        }
+    }
+
+    for (const auto &result : results) {
+        if (result) {
+            frame.rect(result->bounds, mParams.background)
+                .overlay(GetLeaf(result->bounds).colorMaskNew(result->color), result->bounds.x, result->bounds.y);
+        }
+    }
+    return std::nullopt;
 }
 
 const Image &Quadtree::GetLeaf(Rect bounds) {
@@ -120,21 +135,28 @@ class SubdivisionBW : public SubdivisionChecker {
 
     ~SubdivisionBW() override = default;
 
-    std::tuple<bool, std::variant<byte, RgbColor>> Check(const Image &frame, Rect r) const override {
+    RgbColor GetColor(const Image &frame, Rect r) const override {
         double sum = 0;
-        uint8_t min = std::numeric_limits<uint8_t>::max();
-        uint8_t max = std::numeric_limits<uint8_t>::min();
-
-        for (int y = r.y; y < r.h + r.y; y++) {
-            for (int x = r.x; x < r.w + r.x; x++) {
-                uint8_t p = frame.pixel(x, y)[0];
-                min = std::min(min, p);
-                max = std::max(max, p);
-                sum += p;
+        for (int y = r.y; y < r.h + r.y; ++y) {
+            for (int x = r.x; x < r.w + r.x; ++x) {
+                sum += frame.pixel(x, y)[0];
             }
         }
 
-        return {max - min > mParams.similarityThreshold, bound<uint8_t>(sum / (r.h * r.w))};
+        byte val = bound<byte>(sum / (r.h * r.w));
+
+        return {val, val, val};
+    }
+
+    std::tuple<bool, RgbColor> Merge(const RgbColor &tl, const RgbColor &tr, const RgbColor &bl,
+                                     const RgbColor &br) const override {
+        auto [m, n] = std::minmax({tl.r, tr.r, bl.r, br.r});
+
+        byte r = static_cast<byte>((tl.r + tr.r + bl.r + br.r) / 4);
+        byte g = static_cast<byte>((tl.g + tr.g + bl.g + br.g) / 4);
+        byte b = static_cast<byte>((tl.b + tr.b + bl.b + br.b) / 4);
+
+        return std::make_pair(n - m < mParams.similarityThreshold, RgbColor{r, g, b});
     }
 
   private:
@@ -147,38 +169,46 @@ class SubdivisionColor : public SubdivisionChecker {
 
     ~SubdivisionColor() override = default;
 
-    std::tuple<bool, std::variant<byte, RgbColor>> Check(const Image &frame, Rect r) const override {
-        bool subdivide = false;
-
-        auto center = frame.pixel(r.x + r.w / 2, r.y + r.h / 2);
-        uint8_t colR = center[0];
-        uint8_t colG = center[1];
-        uint8_t colB = center[2];
+    RgbColor GetColor(const Image &frame, Rect r) const override {
         double sumR = 0;
         double sumG = 0;
         double sumB = 0;
-
-        auto sqr = [](auto x) { return x * x; };
-
-        auto thresh2 = 3 * sqr(mParams.similarityThreshold);
-
-        for (int y = r.y; y < r.h + r.y; y++) {
-            for (int x = r.x; x < r.w + r.x; x++) {
+        for (int y = r.y; y < r.h + r.y; ++y) {
+            for (int x = r.x; x < r.w + r.x; ++x) {
                 auto pix = frame.pixel(x, y);
-                if (sqr(pix[0] - colR) + sqr(pix[1] - colG) + sqr(pix[2] - colB) > thresh2) {
-                    subdivide = true;
-                }
                 sumR += pix[0];
                 sumG += pix[1];
                 sumB += pix[2];
             }
         }
 
-        sumR /= r.h * r.w;
-        sumG /= r.h * r.w;
-        sumB /= r.h * r.w;
+        sumR /= r.w * r.h;
+        sumG /= r.w * r.h;
+        sumB /= r.w * r.h;
 
-        return {subdivide, RgbColor{bound<uint8_t>(sumR), bound<uint8_t>(sumG), bound<uint8_t>(sumB)}};
+        return {bound<byte>(sumR), bound<byte>(sumG), bound<byte>(sumB)};
+    }
+
+    std::tuple<bool, RgbColor> Merge(const RgbColor &tl, const RgbColor &tr, const RgbColor &bl,
+                                     const RgbColor &br) const override {
+        auto sqr = [](auto x) { return x * x; };
+        auto thresh2 = 3 * sqr(mParams.similarityThreshold);
+
+        auto diff2 = [&](const RgbColor &x, const RgbColor &y) {
+            return sqr(x.r - y.r) + sqr(x.g - y.g) + sqr(x.b - y.b);
+        };
+
+        int maxDiff = 0;
+        for (const auto &d :
+             {diff2(tl, tr), diff2(tl, bl), diff2(tl, br), diff2(tr, bl), diff2(tr, br), diff2(bl, br)}) {
+            maxDiff = std::max(d, maxDiff);
+        }
+
+        byte r = static_cast<byte>((tl.r + tr.r + bl.r + br.r) / 4);
+        byte g = static_cast<byte>((tl.g + tr.g + bl.g + br.g) / 4);
+        byte b = static_cast<byte>((tl.b + tr.b + bl.b + br.b) / 4);
+
+        return std::make_pair(maxDiff < thresh2, RgbColor{r, g, b});
     }
 
   private:

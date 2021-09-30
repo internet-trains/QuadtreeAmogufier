@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
         ("i,input", "Path pattern to input frames", cxxopts::value<std::string>()->default_value("in/img_{}.png"))
         ("o,output", "Path pattern to output frames", cxxopts::value<std::string>()->default_value("out/img_{}.png"))
         ("m,mode", "Must be either 'bw' or 'color'", cxxopts::value<std::string>()->default_value("color"))
-        ("s,similarity", "Similarity threshold for colors (0-255)", cxxopts::value<int>()->default_value("16"))
+        ("s,similarity", "Similarity threshold (0-255)", cxxopts::value<int>()->default_value("8"))
         ("b,background", "Background color", cxxopts::value<std::string>()->default_value("#000000"))
         ("p,out-resolution", "Output vertical resolution", cxxopts::value<int>()->implicit_value("480"))
         ("min-size", "Minimum leaf dimension", cxxopts::value<int>()->default_value("8"))

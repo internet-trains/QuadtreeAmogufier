@@ -53,6 +53,7 @@ struct Image {
     Image &colorMask(uint8_t r, uint8_t g, uint8_t b);
     Image colorMaskNew(float r, float g, float b) const;
     Image colorMaskNew(uint8_t r, uint8_t g, uint8_t b) const;
+    Image colorMaskNew(const RgbColor &color) const { return colorMaskNew(color.r, color.g, color.b); }
     Image &overlay(const Image &source, int x, int y);
     Image resizeFastNew(int rw, int rh) const;
     Image cropNew(int cx, int cy, int cw, int ch) const;
