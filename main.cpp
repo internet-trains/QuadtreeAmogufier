@@ -17,7 +17,7 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
 
 int main(int argc, char *argv[]) {
     cxxopts::Options optParser("QuadtreeAmoguifier", "Processes a sequence of frames into a quadtree animation.");
-
+    std::string defaultThreads = std::to_string(std::thread::hardware_concurrency());
     // clang-format off
     optParser.add_options()
         ("a,anim", "Path pattern to the animation frames", cxxopts::value<std::string>()->default_value("res/{}.png"))
@@ -28,6 +28,7 @@ int main(int argc, char *argv[]) {
         ("s,similarity", "Similarity threshold (0-255)", cxxopts::value<int>()->default_value("8"))
         ("b,background", "Background color", cxxopts::value<std::string>()->default_value("#000000"))
         ("p,out-resolution", "Output vertical resolution", cxxopts::value<int>()->implicit_value("480"))
+        ("t,threads", "Number of threads to use", cxxopts::value<int>()->default_value(defaultThreads))
         ("min-size", "Minimum leaf dimension", cxxopts::value<int>()->default_value("8"))
         ("anim-start", "First frame index of animation frames", cxxopts::value<int>()->default_value("0"))
         ("input-start", "First frame index of input frames", cxxopts::value<int>()->default_value("1"))
@@ -171,7 +172,7 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
 
     std::cout << "Found " << frameTrees.size() << " animation frames.\n";
 
-    thread_pool pool;
+    thread_pool pool(static_cast<std::uint_fast32_t>(options["threads"].as<int>()));
 
     auto getFrameTree = [&, repeat = options["repeat"].as<int>(), repeatIndex = 0, frameIndex = 0]() mutable {
         if (repeatIndex >= repeat) {
