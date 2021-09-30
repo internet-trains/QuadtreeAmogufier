@@ -41,12 +41,14 @@ class Quadtree {
     Image ProcessFrame(Image frame);
 
   private:
-    struct LeafNode {
+    struct LeafData {
         RgbColor color;
         Rect bounds;
     };
 
-    using ProcResult = std::optional<LeafNode>;
+    using ProcResult = std::optional<LeafData>;
+
+    void RenderLeaf(Image &dst, const LeafData &data);
 
     ProcResult ProcessFrame(Image &dst, Rect bounds);
 

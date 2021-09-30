@@ -44,7 +44,11 @@ Image Quadtree::ProcessFrame(Image frame) {
     size = step;
 
     for (int i = 0; i < splitCount; ++i) {
-        ProcessFrame(frame, bounds);
+        auto result = ProcessFrame(frame, bounds);
+
+        if (result) {
+            RenderLeaf(frame, *result);
+        }
 
         pos += size;
         err += errStep;
@@ -63,9 +67,14 @@ struct ColorVisitor {
     RgbColor operator()(RgbColor color) { return color; }
 };
 
+void Quadtree::RenderLeaf(Image &dst, const LeafData &data) {
+    dst.rect(data.bounds, mParams.background)
+        .overlay(GetLeaf(data.bounds).colorMaskNew(data.color), data.bounds.x, data.bounds.y);
+}
+
 Quadtree::ProcResult Quadtree::ProcessFrame(Image &frame, Rect bounds) {
     if (bounds.w <= mParams.minSize || bounds.h <= mParams.minSize) {
-        return LeafNode{mSubChecker->GetColor(frame, bounds), bounds};
+        return LeafData{mSubChecker->GetColor(frame, bounds), bounds};
     }
 
     int ulX = bounds.x;
@@ -84,14 +93,13 @@ Quadtree::ProcResult Quadtree::ProcessFrame(Image &frame, Rect bounds) {
         auto [doMerge, color] =
             std::apply([&](const auto &...args) { return mSubChecker->Merge((args->color)...); }, results);
         if (doMerge) {
-            return LeafNode{color, bounds};
+            return LeafData{color, bounds};
         }
     }
 
     for (const auto &result : results) {
         if (result) {
-            frame.rect(result->bounds, mParams.background)
-                .overlay(GetLeaf(result->bounds).colorMaskNew(result->color), result->bounds.x, result->bounds.y);
+            RenderLeaf(frame, *result);
         }
     }
     return std::nullopt;
