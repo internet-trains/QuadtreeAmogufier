@@ -144,13 +144,63 @@ class ProgressBar {
     int mSize;
 };
 
+class QuadtreeBuilder {
+  public:
+    QuadtreeBuilder(fs::path path, QuadtreeParameters params, SubdivisionChecker::Ptr checker)
+        : mPath(std::move(path)), mParams(params), mChecker(std::move(checker)) {}
+
+    void AddUse() {
+        std::unique_lock lock(*mMutexPtr);
+        ++mUseCount;
+        ReleaseImpl();
+    }
+
+    Quadtree &GetTree() {
+        std::unique_lock lock(*mMutexPtr);
+        if (!mQuadtree) {
+            mQuadtree = Quadtree{Image{mPath.string().c_str()}.rescaleLuminance(), mParams, mChecker};
+            mUses = 0;
+        }
+        return *mQuadtree;
+    }
+
+    void Release() {
+        std::unique_lock lock(*mMutexPtr);
+        ++mUses;
+        ReleaseImpl();
+    }
+
+    void AllowRelease() {
+        std::unique_lock lock(*mMutexPtr);
+        mAllowRelease = true;
+        ReleaseImpl();
+    }
+
+  private:
+    void ReleaseImpl() {
+        if (mAllowRelease && mUses >= mUseCount) {
+            mQuadtree = std::nullopt;
+        }
+    }
+
+    std::unique_ptr<std::mutex> mMutexPtr = std::make_unique<std::mutex>();
+    std::optional<Quadtree> mQuadtree;
+    fs::path mPath;
+    QuadtreeParameters mParams;
+    SubdivisionChecker::Ptr mChecker;
+
+    int mUseCount = 0;
+    int mUses = 0;
+    bool mAllowRelease = false;
+};
+
 void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::Ptr checker) {
     auto animPat = options["anim"].as<std::string>();
     auto inputPat = options["input"].as<std::string>();
     auto outputPat = options["output"].as<std::string>();
     fs::path lastPath;
 
-    std::vector<Quadtree> frameTrees;
+    std::vector<QuadtreeBuilder> frameBuilders;
 
     std::cout << "Searching for animation frames...\n";
     for (int frame = options["anim-start"].as<int>();; ++frame) {
@@ -161,29 +211,31 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
         QuadtreeParameters params;
         params.minSize = options["min-size"].as<int>();
         params.background = parseColor(options["background"].as<std::string>());
-        frameTrees.emplace_back(Image{path.string().c_str()}.rescaleLuminance(), params, checker);
-        lastPath = path;
+        frameBuilders.emplace_back(path, std::move(params), checker);
+        lastPath = std::move(path);
     }
 
-    if (frameTrees.empty()) {
+    if (frameBuilders.empty()) {
         std::cerr << "No animation frames found, aborting...\n";
         return;
     }
 
-    std::cout << "Found " << frameTrees.size() << " animation frames.\n";
+    std::cout << "Found " << frameBuilders.size() << " animation frames.\n";
 
     thread_pool pool(static_cast<std::uint_fast32_t>(options["threads"].as<int>()));
 
-    auto getFrameTree = [&, repeat = options["repeat"].as<int>(), repeatIndex = 0, frameIndex = 0]() mutable {
+    auto getFrameBuilder = [&, repeat = options["repeat"].as<int>(), repeatIndex = 0, frameIndex = 0]() mutable {
         if (repeatIndex >= repeat) {
             repeatIndex = 0;
             ++frameIndex;
         }
-        if (frameIndex >= frameTrees.size()) {
+        if (frameIndex >= frameBuilders.size()) {
             frameIndex = 0;
         }
         ++repeatIndex;
-        return &frameTrees[frameIndex];
+        auto &ret = frameBuilders[frameIndex];
+        ret.AddUse();
+        return &ret;
     };
 
     std::cout << "Generating frame tasks...\n";
@@ -204,13 +256,15 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
         if (inPath == lastPath || !fs::exists(inPath)) {
             break;
         }
-        pool.submit([inPath = std::move(inPath), outPath = std::move(outPath), tree = getFrameTree(), outRes, &cv,
+        pool.submit([inPath = std::move(inPath), outPath = std::move(outPath), builder = getFrameBuilder(), outRes, &cv,
                      &cvMutex, &tasksDone] {
             if (outPath.has_parent_path()) {
                 fs::create_directories(outPath.parent_path());
             }
             try {
-                auto frame = tree->ProcessFrame(Image(inPath.string().c_str()));
+                auto &tree = builder->GetTree();
+                auto frame = tree.ProcessFrame(Image(inPath.string().c_str()));
+                builder->Release();
 
                 if (outRes) {
                     int h = *outRes;
@@ -234,6 +288,10 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
             cv.notify_one();
         });
         ++taskCount;
+    }
+
+    for (auto &builder : frameBuilders) {
+        builder.AllowRelease();
     }
 
     std::cout << "Processing " << taskCount << " frames...\n";
