@@ -15,17 +15,15 @@ std::vector<Image> BuildLeafCache(const Image &leafImage, Rect bounds, std::size
     return ret;
 }
 
-double GetAspect(const Rect &bounds) {
-    auto [a, b] = std::minmax(bounds.w, bounds.h);
-    return static_cast<double>(b) / a;
-}
-
-int GetBestSplitCount(Rect bounds) {
-    double bestAR = GetAspect(bounds);
+std::tuple<int, bool> GetBestSplitCount(const Image &leafImage, Rect bounds) {
+    double leafAR = static_cast<double>(leafImage.width()) / leafImage.height();
+    double w = static_cast<double>(bounds.w);
+    double h = bounds.h * leafAR;
+    double bestAR = w > h ? w / h : h / w;
     int bestCount = static_cast<int>(std::floor(bestAR));
     if (bestAR * bestAR > bestCount * (bestCount + 1))
         ++bestCount;
-    return bestCount;
+    return {bestCount, w > h};
 }
 } // namespace
 
@@ -34,10 +32,9 @@ Quadtree::Quadtree(Image leafImage, QuadtreeParameters params, SubdivisionChecke
 
 Image Quadtree::ProcessFrame(Image frame) {
     Rect bounds{0, 0, frame.width(), frame.height()};
-    bool horizontal = bounds.w > bounds.h;
+    auto [splitCount, horizontal] = GetBestSplitCount(mLeafImage, bounds);
     int &size = horizontal ? bounds.w : bounds.h;
     int &pos = horizontal ? bounds.x : bounds.y;
-    int splitCount = GetBestSplitCount(bounds);
     int step = std::max(bounds.w, bounds.h) / splitCount;
     int errStep = std::max(bounds.w, bounds.h) - step * splitCount;
     int err = errStep;
