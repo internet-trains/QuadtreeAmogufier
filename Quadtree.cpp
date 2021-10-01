@@ -35,8 +35,8 @@ Image Quadtree::ProcessFrame(Image frame) {
     auto [splitCount, horizontal] = GetBestSplitCount(mLeafImage, bounds);
     int &size = horizontal ? bounds.w : bounds.h;
     int &pos = horizontal ? bounds.x : bounds.y;
-    int step = std::max(bounds.w, bounds.h) / splitCount;
-    int errStep = std::max(bounds.w, bounds.h) - step * splitCount;
+    int step = size / splitCount;
+    int errStep = size - step * splitCount;
     int err = errStep;
     size = step;
 

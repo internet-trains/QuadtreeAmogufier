@@ -209,20 +209,24 @@ void createVideoFrames(const cxxopts::ParseResult &options, SubdivisionChecker::
             if (outPath.has_parent_path()) {
                 fs::create_directories(outPath.parent_path());
             }
-            auto frame = tree->ProcessFrame(Image(inPath.string().c_str()));
-            if (outRes) {
-                int h = *outRes;
-                if (h % 2) {
-                    ++h;
-                }
-                int w = frame.width() * h / frame.height();
-                if (w % 2) {
-                    ++w;
-                }
-                frame = frame.resizeFastNew(w, h);
-            }
-            frame.save(outPath.string().c_str());
+            try {
+                auto frame = tree->ProcessFrame(Image(inPath.string().c_str()));
 
+                if (outRes) {
+                    int h = *outRes;
+                    if (h % 2) {
+                        ++h;
+                    }
+                    int w = frame.width() * h / frame.height();
+                    if (w % 2) {
+                        ++w;
+                    }
+                    frame = frame.resizeFastNew(w, h);
+                }
+                frame.save(outPath.string().c_str());
+            } catch (std::exception &e) {
+                std::cerr << "Process for " << inPath << " threw an exception: " << e.what() << "\n";
+            }
             {
                 std::unique_lock lock(cvMutex);
                 ++tasksDone;
